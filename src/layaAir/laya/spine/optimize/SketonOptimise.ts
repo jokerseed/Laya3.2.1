@@ -93,7 +93,7 @@ export class SketonOptimise implements IPreRender {
             sp = new SpineNormalRender();
         }
         else if (this.maxBoneNumber > SketonOptimise.MAX_BONES) {
-            console.warn("The number of Bones :" , this.maxBoneNumber ," > " , SketonOptimise.MAX_BONES , ", use CPU caculation");
+            console.warn("The number of Bones :" , this.maxBoneNumber ," > " , SketonOptimise.MAX_BONES , ", use CPU caculation", templet.url);
             sp = new SpineNormalRender();
         }
         else {
