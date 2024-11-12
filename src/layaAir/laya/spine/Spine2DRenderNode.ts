@@ -31,6 +31,9 @@ import { Sprite } from "../display/Sprite";
 import { Color } from "../maths/Color";
 import { Rectangle } from "../maths/Rectangle";
 import { SpriteConst } from "../display/SpriteConst";
+import { SpineSocket } from "./SpineSocket";
+import { Matrix } from "../maths/Matrix";
+import { Point } from "../maths/Point";
 
 /**
  * @en The spine animation consists of three parts: `SpineTemplet`, `SpineSkeletonRender`, and `SpineSkeleton`.
@@ -134,6 +137,60 @@ export class Spine2DRenderNode extends BaseRenderNode2D implements ISpineSkeleto
     private _oldAlpha: number;
 
     private _matBuffer: Float32Array = new Float32Array(6);
+
+    private _sockets: SpineSocket[] = [];
+    private _socketNodes: Map<number, Sprite> = new Map();
+    get sockets(): SpineSocket[] {
+        return this._sockets;
+    }
+    set sockets(val: SpineSocket[]) {
+        this._sockets = val;
+        this._updateSocketBindings();
+        this._syncAttachedNode();
+    }
+    private _updateSocketBindings(): void {
+        if (!this._skeleton) return;
+        this._socketNodes.clear();
+        for (let i = 0, l = this._sockets.length; i < l; i++) {
+            const socket = this._sockets[i];
+            if (socket.boneName && socket.target) {
+                const boneIdx = this.getBoneByName(socket.boneName)?.data.index;
+                if (!boneIdx) {
+                    console.warn(`Skeleton data does not contain path ${socket.boneName}`);
+                    continue;
+                }
+                this._socketNodes.set(boneIdx, socket.target);
+            }
+        }
+    }
+    private _syncAttachedNode() {
+        for (const [boneIdx, boneNode] of this._socketNodes) {
+            if (!boneNode || boneNode.destroyed) {
+                continue;
+            }
+            const bone = this._skeleton.bones![boneIdx];
+            if (bone) this.matrixHandle(boneNode, bone);
+        }
+    }
+    private matrixHandle(node: Sprite, bone: spine.Bone): void {
+        Matrix.TEMP.a = bone.a;
+        Matrix.TEMP.b = bone.b;
+        Matrix.TEMP.c = bone.c;
+        Matrix.TEMP.d = bone.d;
+        Matrix.TEMP.tx = bone.worldX;
+        Matrix.TEMP.ty = -bone.worldY + (this.owner as Sprite).y;
+        // Point.TEMP.x = bone.worldX;
+        // Point.TEMP.y = bone.worldY;
+        // (this.owner.parent as Sprite).globalToLocal(Point.TEMP, false);
+        // Matrix.TEMP.tx = Point.TEMP.x;
+        // Matrix.TEMP.ty = Point.TEMP.y;
+        node.transform = Matrix.TEMP;
+    }
+    private clearSpineSocket() {
+        this._sockets.length = 0;
+        this._socketNodes.clear();
+    }
+
     /** @ignore */
     constructor() {
         super();
@@ -181,12 +238,12 @@ export class Spine2DRenderNode extends BaseRenderNode2D implements ISpineSkeleto
         Vector2.TempVector2.setValue(context.width, context.height);
         this._spriteShaderData.setVector2(SpineShaderInit.Size, Vector2.TempVector2);
         // context.globalAlpha
-        if (this._oldAlpha !==  context.globalAlpha) {
+        if (this._oldAlpha !== context.globalAlpha) {
             let scolor = this.spineItem.getSpineColor();
-            let a = scolor.a *  context.globalAlpha;
-            let color = new Color(scolor.r , scolor.g , scolor.b , a);
+            let a = scolor.a * context.globalAlpha;
+            let color = new Color(scolor.r, scolor.g, scolor.b, a);
             this._spriteShaderData.setColor(SpineShaderInit.Color, color);
-            this._oldAlpha =  context.globalAlpha;
+            this._oldAlpha = context.globalAlpha;
         }
         context._copyClipInfoToShaderData(this._spriteShaderData);
     }
@@ -349,7 +406,7 @@ export class Spine2DRenderNode extends BaseRenderNode2D implements ISpineSkeleto
         if (!this._templet)
             return;
         if (value) {
-          
+
             if ((this.spineItem instanceof SpineNormalRender)) {
                 this.spineItem.destroy();
                 let before = SketonOptimise.normalRenderSwitch;
@@ -460,8 +517,10 @@ export class Spine2DRenderNode extends BaseRenderNode2D implements ISpineSkeleto
         });
         this._flushExtSkin();
         this.event(Event.READY);
-        
-        if (LayaEnv.isPlaying && this._animationName !== undefined){
+
+        this._updateSocketBindings();
+
+        if (LayaEnv.isPlaying && this._animationName !== undefined) {
             this.play(this._animationName, this._loop, true);
         }
     }
@@ -496,7 +555,7 @@ export class Spine2DRenderNode extends BaseRenderNode2D implements ISpineSkeleto
 
         if (typeof nameOrIndex == "number") {
             nameOrIndex = this.getAniNameByIndex(nameOrIndex);
-        }else{
+        } else {
             let hasAni = !!this.templet.findAnimation(nameOrIndex);
             if (!hasAni) return
         }
@@ -536,7 +595,7 @@ export class Spine2DRenderNode extends BaseRenderNode2D implements ISpineSkeleto
         state.apply(this._skeleton);
         //@ts-ignore
         this._currentPlayTime = state.getCurrentPlayTime(this.trackIndex);
-        
+
         // spine在state.apply中发送事件，开发者可能会在事件中进行destory等操作，导致无法继续执行
         if (!this._state || !this._skeleton) {
             return;
@@ -548,6 +607,8 @@ export class Spine2DRenderNode extends BaseRenderNode2D implements ISpineSkeleto
         if ((this.owner as Sprite)._renderType & SpriteConst.FILTERS) {
             (this.owner as Sprite).repaint();
         }
+
+        this._syncAttachedNode();
     }
 
     private _flushExtSkin() {
@@ -736,6 +797,7 @@ export class Spine2DRenderNode extends BaseRenderNode2D implements ISpineSkeleto
      * @zh 重置Spine动画组件
      */
     reset() {
+        this.clearSpineSocket();
         this._templet._removeReference(1);
         this._templet = null;
         this._timeKeeper = null;
@@ -921,14 +983,14 @@ export class Spine2DRenderNode extends BaseRenderNode2D implements ISpineSkeleto
      * @param count 索引数量
      * @param offset 起始索引
      */
-    drawGeo(geo: IRenderGeometryElement, material: Material , count:number , offset:number ) {
+    drawGeo(geo: IRenderGeometryElement, material: Material, count: number, offset: number) {
         let element = Spine2DRenderNode.createRenderElement2D();
         let eleGeo = element.geometry;
         eleGeo.bufferState = geo.bufferState;
         eleGeo.indexFormat = geo.indexFormat;
         eleGeo.instanceCount = geo.instanceCount;
         eleGeo.clearRenderParams();
-        eleGeo.setDrawElemenParams(count , offset);
+        eleGeo.setDrawElemenParams(count, offset);
 
         this._renderElements.push(element);
         if (this._materials[0] != null) {
