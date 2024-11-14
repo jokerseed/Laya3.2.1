@@ -177,7 +177,7 @@ export class Spine2DRenderNode extends BaseRenderNode2D implements ISpineSkeleto
         Matrix.TEMP.b = bone.b;
         Matrix.TEMP.c = bone.c;
         Matrix.TEMP.d = bone.d;
-        Matrix.TEMP.tx = bone.worldX;
+        Matrix.TEMP.tx = bone.worldX + (this.owner as Sprite).x;
         Matrix.TEMP.ty = -bone.worldY + (this.owner as Sprite).y;
         // Point.TEMP.x = bone.worldX;
         // Point.TEMP.y = bone.worldY;
